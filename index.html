@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D攝影機運鏡模擬器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            margin: 0;
+            overflow: hidden;
+            background-color: #111827;
+            color: #f3f4f6;
+        }
+        #scene-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+        }
+        #scene-container:active {
+            cursor: grabbing;
+        }
+        #preview-container {
+            position: absolute;
+            bottom: 24px;
+            right: 24px;
+            width: 320px;
+            height: 180px;
+            border: 2px solid #4f46e5;
+            border-radius: 0.5rem;
+            background-color: #1f2937;
+            overflow: hidden;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            resize: both;
+        }
+        #preview-label {
+            position: absolute;
+            top: 0;
+            left: 0;
+            background-color: rgba(79, 70, 229, 0.8);
+            color: white;
+            padding: 4px 8px;
+            font-size: 12px;
+            border-bottom-right-radius: 0.5rem;
+            user-select: none;
+        }
+        #controls {
+            position: absolute;
+            top: 24px;
+            left: 24px;
+            background-color: rgba(31, 41, 55, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 16px;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            width: 280px;
+            max-height: calc(100vh - 48px);
+            overflow-y: auto;
+        }
+        .control-group h3 {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #9ca3af;
+            border-bottom: 1px solid #4b5563;
+            padding-bottom: 4px;
+        }
+        .control-btn, .upload-label {
+            width: 100%;
+            padding: 8px 12px;
+            margin-bottom: 8px;
+            border: none;
+            border-radius: 0.375rem;
+            background-color: #374151;
+            color: #e5e7eb;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            text-align: center;
+            display: block;
+        }
+        .control-btn:hover, .upload-label:hover {
+            background-color: #4f46e5;
+            color: white;
+        }
+        .control-btn:active {
+            transform: scale(0.98);
+        }
+        #loading-indicator {
+            display: none;
+            color: #9ca3af;
+            font-size: 12px;
+            text-align: center;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Noto+Sans+TC:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div id="scene-container"></div>
+
+    <div id="preview-container">
+        <div id="preview-label">2D 鏡頭預覽</div>
+    </div>
+
+    <div id="controls">
+        <div class="control-group mb-4">
+            <h3 class="text-sm">自訂模型</h3>
+            <label for="model-upload" class="upload-label">上傳模型 (.gltf, .glb)</label>
+            <input type="file" id="model-upload" accept=".gltf,.glb" class="hidden">
+            <div id="loading-indicator">載入中...</div>
+        </div>
+        <div class="control-group mb-4">
+            <h3 class="text-sm">運鏡手法 (Camera Movement)</h3>
+            <button id="dolly-in" class="control-btn text-left">Dolly In (向前推軌)</button>
+            <button id="dolly-out" class="control-btn text-left">Dolly Out (向後拉軌)</button>
+            <button id="orbit-left" class="control-btn text-left">Orbit Left (向左環繞)</button>
+            <button id="orbit-right" class="control-btn text-left">Orbit Right (向右環繞)</button>
+            <button id="pan-left" class="control-btn text-left">Pan Left (向左搖鏡)</button>
+            <button id="pan-right" class="control-btn text-left">Pan Right (向右搖鏡)</button>
+            <button id="tilt-up" class="control-btn text-left">Tilt Up (向上仰攝)</button>
+            <button id="tilt-down" class="control-btn text-left">Tilt Down (向下俯攝)</button>
+        </div>
+        <div class="control-group mb-4">
+            <h3 class="text-sm">拍攝距離 (Shot Distance)</h3>
+            <button id="close-up" class="control-btn text-left">Close-up Shot (特寫)</button>
+            <button id="medium-shot" class="control-btn text-left">Medium Shot (中景)</button>
+            <button id="wide-shot" class="control-btn text-left">Wider Shot (廣角)</button>
+        </div>
+        <div class="control-group">
+            <h3 class="text-sm">拍攝角度 (Camera Angle)</h3>
+            <button id="eye-level" class="control-btn text-left">Eye-Level (水平視角)</button>
+            <button id="high-angle" class="control-btn text-left">High Angle (高角度)</button>
+            <button id="low-angle" class="control-btn text-left">Low Angle (低角度)</button>
+            <button id="birds-eye" class="control-btn text-left">Bird's-eye View (鳥瞰)</button>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        // --- 全域變數 ---
+        let mainCamera, shotCamera, scene, mainRenderer, previewRenderer;
+        let mainControls;
+        let cameraHelper;
+        let targetObject;
+        const targetPosition = new THREE.Vector3(0, 1, 0);
+        const gltfLoader = new GLTFLoader();
+
+        // 動畫相關
+        let targetCamPos = new THREE.Vector3();
+        let targetCamQuat = new THREE.Quaternion();
+        let isAnimating = false;
+
+        // --- DOM 元素 ---
+        const mainContainer = document.getElementById('scene-container');
+        const previewContainer = document.getElementById('preview-container');
+        const modelUploadInput = document.getElementById('model-upload');
+        const loadingIndicator = document.getElementById('loading-indicator');
+
+        // --- 初始化 ---
+        function init() {
+            // --- 場景 ---
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111827);
+            scene.fog = new THREE.Fog(0x111827, 20, 50);
+
+            // --- 主要攝影機 (上帝視角) ---
+            mainCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            mainCamera.position.set(8, 6, 12);
+            mainCamera.lookAt(targetPosition);
+
+            // --- 模擬攝影機 (拍攝用) ---
+            shotCamera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 1000);
+            cameraHelper = new THREE.CameraHelper(shotCamera);
+            scene.add(cameraHelper);
+            
+            resetShotCamera();
+
+            // --- 渲染器 ---
+            mainRenderer = new THREE.WebGLRenderer({ antialias: true });
+            mainRenderer.setSize(window.innerWidth, window.innerHeight);
+            mainRenderer.setPixelRatio(window.devicePixelRatio);
+            mainContainer.appendChild(mainRenderer.domElement);
+            
+            previewRenderer = new THREE.WebGLRenderer({ antialias: true });
+            previewContainer.appendChild(previewRenderer.domElement);
+
+            // --- 控制器 ---
+            mainControls = new OrbitControls(mainCamera, mainRenderer.domElement);
+            mainControls.enableDamping = true;
+            mainControls.dampingFactor = 0.05;
+            mainControls.target.copy(targetPosition);
+
+            // --- 光源 ---
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            directionalLight.position.set(5, 10, 7.5);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+
+            // --- 物件 ---
+            createDefaultObject();
+            
+            const groundGeo = new THREE.PlaneGeometry(50, 50);
+            const groundMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.8 });
+            const ground = new THREE.Mesh(groundGeo, groundMat);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+            
+            const gridHelper = new THREE.GridHelper(50, 50, 0x4b5563, 0x374151);
+            scene.add(gridHelper);
+
+            // --- 事件監聽 ---
+            window.addEventListener('resize', onWindowResize, false);
+            const previewResizeObserver = new ResizeObserver(onPreviewResize);
+            previewResizeObserver.observe(previewContainer);
+            modelUploadInput.addEventListener('change', handleModelUpload);
+            setupControls();
+
+            onPreviewResize();
+        }
+
+        // --- 物件處理 ---
+        function createDefaultObject() {
+            const targetGeo = new THREE.TorusKnotGeometry(0.8, 0.3, 100, 16);
+            const targetMat = new THREE.MeshStandardMaterial({ color: 0x4f46e5, roughness: 0.3, metalness: 0.5 });
+            setTargetObject(new THREE.Mesh(targetGeo, targetMat));
+        }
+
+        function setTargetObject(object) {
+            if (targetObject) {
+                scene.remove(targetObject);
+            }
+            targetObject = object;
+            targetObject.position.copy(targetPosition);
+            targetObject.castShadow = true;
+            targetObject.traverse(node => {
+                if (node.isMesh) node.castShadow = true;
+            });
+            scene.add(targetObject);
+        }
+
+        function handleModelUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                loadingIndicator.style.display = 'block';
+                gltfLoader.parse(e.target.result, '', (gltf) => {
+                    const model = gltf.scene;
+                    
+                    const box = new THREE.Box3().setFromObject(model);
+                    const size = box.getSize(new THREE.Vector3());
+                    const center = box.getCenter(new THREE.Vector3());
+                    
+                    const maxSize = Math.max(size.x, size.y, size.z);
+                    const scale = 2.0 / maxSize;
+                    
+                    model.position.sub(center.multiplyScalar(scale));
+                    model.scale.set(scale, scale, scale);
+
+                    setTargetObject(model);
+                    loadingIndicator.style.display = 'none';
+                }, (error) => {
+                    console.error('An error happened during parsing', error);
+                    loadingIndicator.innerText = '模型載入失敗!';
+                });
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+
+        // --- 重設模擬攝影機 ---
+        function resetShotCamera() {
+            const pos = new THREE.Vector3(0, 1.5, 5);
+            // FIX: 直接設定攝影機位置並使其看向目標，避免使用複雜的四元數計算導致初始畫面錯誤
+            shotCamera.position.copy(pos);
+            shotCamera.lookAt(targetPosition);
+
+            // FIX: 同步動畫目標狀態，並確保初始時沒有動畫在執行
+            targetCamPos.copy(shotCamera.position);
+            targetCamQuat.copy(shotCamera.quaternion);
+            isAnimating = false;
+        }
+
+        // --- 設定控制按鈕 ---
+        function setupControls() {
+             document.getElementById('close-up').addEventListener('click', () => {
+                const newPos = new THREE.Vector3().subVectors(shotCamera.position, targetPosition).normalize().multiplyScalar(2).add(targetPosition);
+                animateCameraTo(newPos, shotCamera.quaternion);
+            });
+            document.getElementById('medium-shot').addEventListener('click', () => {
+                const newPos = new THREE.Vector3().subVectors(shotCamera.position, targetPosition).normalize().multiplyScalar(5).add(targetPosition);
+                animateCameraTo(newPos, shotCamera.quaternion);
+            });
+            document.getElementById('wide-shot').addEventListener('click', () => {
+                const newPos = new THREE.Vector3().subVectors(shotCamera.position, targetPosition).normalize().multiplyScalar(10).add(targetPosition);
+                animateCameraTo(newPos, shotCamera.quaternion);
+            });
+            document.getElementById('eye-level').addEventListener('click', () => {
+                const dist = shotCamera.position.distanceTo(targetPosition);
+                const newPos = new THREE.Vector3(targetPosition.x, targetPosition.y + 0.5, targetPosition.z + dist);
+                animateCameraTo(newPos, getLookAtQuaternion(newPos, targetPosition));
+            });
+            document.getElementById('high-angle').addEventListener('click', () => {
+                const dist = shotCamera.position.distanceTo(targetPosition);
+                const newPos = new THREE.Vector3(targetPosition.x, targetPosition.y + dist * 0.7, targetPosition.z + dist * 0.7);
+                animateCameraTo(newPos, getLookAtQuaternion(newPos, targetPosition));
+            });
+            document.getElementById('low-angle').addEventListener('click', () => {
+                const dist = shotCamera.position.distanceTo(targetPosition);
+                const newPos = new THREE.Vector3(targetPosition.x, targetPosition.y - dist * 0.3, targetPosition.z + dist);
+                animateCameraTo(newPos, getLookAtQuaternion(newPos, targetPosition));
+            });
+            document.getElementById('birds-eye').addEventListener('click', () => {
+                const dist = shotCamera.position.distanceTo(targetPosition);
+                const newPos = new THREE.Vector3(targetPosition.x, targetPosition.y + dist, targetPosition.z + 0.01);
+                animateCameraTo(newPos, getLookAtQuaternion(newPos, targetPosition));
+            });
+            document.getElementById('dolly-in').addEventListener('click', () => {
+                const direction = new THREE.Vector3();
+                shotCamera.getWorldDirection(direction);
+                const newPos = shotCamera.position.clone().add(direction.multiplyScalar(2));
+                animateCameraTo(newPos, shotCamera.quaternion);
+            });
+            document.getElementById('dolly-out').addEventListener('click', () => {
+                const direction = new THREE.Vector3();
+                shotCamera.getWorldDirection(direction);
+                const newPos = shotCamera.position.clone().sub(direction.multiplyScalar(2));
+                animateCameraTo(newPos, shotCamera.quaternion);
+            });
+            document.getElementById('orbit-left').addEventListener('click', () => moveOrbit(Math.PI / 4));
+            document.getElementById('orbit-right').addEventListener('click', () => moveOrbit(-Math.PI / 4));
+            document.getElementById('pan-left').addEventListener('click', () => movePanTilt(Math.PI / 8, 0));
+            document.getElementById('pan-right').addEventListener('click', () => movePanTilt(-Math.PI / 8, 0));
+            document.getElementById('tilt-up').addEventListener('click', () => movePanTilt(0, Math.PI / 16));
+            document.getElementById('tilt-down').addEventListener('click', () => movePanTilt(0, -Math.PI / 16));
+        }
+
+        // --- 攝影機動畫輔助函式 ---
+        function animateCameraTo(position, quaternion) {
+            targetCamPos.copy(position);
+            targetCamQuat.copy(quaternion);
+            isAnimating = true;
+        }
+
+        function getLookAtQuaternion(position, target) {
+            const tempCam = new THREE.Object3D();
+            tempCam.position.copy(position);
+            tempCam.lookAt(target);
+            return tempCam.quaternion;
+        }
+
+        function moveOrbit(angle) {
+            const offset = new THREE.Vector3().subVectors(shotCamera.position, targetPosition);
+            offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), angle);
+            const newPos = new THREE.Vector3().addVectors(targetPosition, offset);
+            const newQuat = getLookAtQuaternion(newPos, targetPosition);
+            animateCameraTo(newPos, newQuat);
+        }
+
+        function movePanTilt(panAngle, tiltAngle) {
+            const euler = new THREE.Euler().setFromQuaternion(shotCamera.quaternion, 'YXZ');
+            euler.y += panAngle;
+            euler.x += tiltAngle;
+            euler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, euler.x));
+            const newQuat = new THREE.Quaternion().setFromEuler(euler);
+            animateCameraTo(shotCamera.position, newQuat);
+        }
+
+        // --- 視窗大小調整 ---
+        function onWindowResize() {
+            mainCamera.aspect = window.innerWidth / window.innerHeight;
+            mainCamera.updateProjectionMatrix();
+            mainRenderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function onPreviewResize() {
+            const width = previewContainer.clientWidth;
+            const height = previewContainer.clientHeight;
+            if (height === 0) return;
+            shotCamera.aspect = width / height;
+            shotCamera.updateProjectionMatrix();
+            previewRenderer.setSize(width, height);
+            previewRenderer.setPixelRatio(window.devicePixelRatio);
+        }
+
+        // --- 動畫迴圈 ---
+        function animate() {
+            requestAnimationFrame(animate);
+            mainControls.update();
+            if (isAnimating) {
+                const lerpFactor = 0.05;
+                shotCamera.position.lerp(targetCamPos, lerpFactor);
+                shotCamera.quaternion.slerp(targetCamQuat, lerpFactor);
+
+                if (shotCamera.position.distanceTo(targetCamPos) < 0.01 && shotCamera.quaternion.angleTo(targetCamQuat) < 0.01) {
+                    shotCamera.position.copy(targetCamPos);
+                    shotCamera.quaternion.copy(targetCamQuat);
+                    isAnimating = false;
+                }
+            }
+            cameraHelper.update();
+            mainRenderer.render(scene, mainCamera);
+            previewRenderer.render(scene, shotCamera);
+        }
+
+        // --- 啟動 ---
+        init();
+        animate();
+
+    </script>
+</body>
+</html>
